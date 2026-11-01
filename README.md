@@ -80,25 +80,28 @@ Source +Y at the top of the screen, the same as radar images.
 The scene loads `public/maps/<map>.glb` (for example `public/maps/de_dust2.glb`). If the file is
 missing, the UI draws a grid sized to the players' bounding box instead.
 
-Use [Source2Viewer / ValveResourceFormat](https://github.com/ValveResourceFormat/ValveResourceFormat):
+Use `scripts/export-maps.sh`. It needs
+[Source2Viewer-CLI](https://github.com/ValveResourceFormat/ValveResourceFormat) and Node (`npx`):
 
-1. Find the map VPK in your CS2 install, for example
-   `.../Counter-Strike Global Offensive/game/csgo/maps/de_dust2.vpk`.
-2. **GUI:** open the VPK in Source2Viewer, open `maps/de_dust2/world.vwrld_c` (or the map's
-   `.vmap_c`), then use *Export → glTF*, choose **GLB**, and save it as `public/maps/de_dust2.glb`.
-3. **CLI** (`Source2Viewer-CLI`, called `Decompiler` in older releases): it can decompile from a
-   VPK with a path filter and write glTF/GLB. The command looks roughly like this:
+```bash
+scripts/export-maps.sh                  # all maps in the script's list
+scripts/export-maps.sh de_dust2 de_nuke # just these
+# env: S2V=/path/to/Source2Viewer-CLI  CS2_GAME=.../game/csgo  TEX_SIZE=1024
+```
 
-   ```bash
-   Source2Viewer-CLI -i .../maps/de_dust2.vpk --vpk_filepath maps/de_dust2/world.vwrld_c \
-     -o out/ -d --gltf_export_format glb
-   ```
+For each map it:
 
-   **Check the exact flag names with `Source2Viewer-CLI --help`.** They have changed between
-   releases, and the flags above are not guaranteed. Skipping materials and textures makes the file
-   much smaller, and is usually enough for a tactical view.
-4. Rename or copy the result to `public/maps/<map>.glb`. Large files are fine. They are not
-   committed (`.gitignore`).
+1. Exports `maps/<map>/world.vwrld_c` from `<CS2_GAME>/maps/<map>.vpk` as GLB **with
+   `--gltf_export_materials`**. Without that flag the GLB has no materials and every surface
+   renders white.
+2. Shrinks the result with `gltf-transform optimize`: meshopt-compressed geometry, GPU instancing
+   for repeated props, and WebP textures resized to `TEX_SIZE` (1024 px by default). de_mirage
+   goes from about 350 MB (GLB plus loose PNGs) to about 38 MB. `useGLTF` decodes meshopt by
+   default, so the UI needs no changes.
+3. Writes `public/maps/<map>.glb`, replacing the old file only once the new one is complete.
+
+The large maps need a lot of RAM while optimizing (the script allows Node 16 GB). The GLBs are
+not committed (`.gitignore`).
 
 **Alignment assumption:** VRF's glTF exporter is believed to convert to Y-up metres itself, mapping
 Source `(x, y, z)` to glTF `(y, z, x) * 0.0254`. `src/scene/mapConfig.ts` therefore rotates the
@@ -115,10 +118,12 @@ docker build -t cs2-lab-ui --build-arg VITE_API_URL=http://my-api-host:8080 .
 docker run -p 8081:80 cs2-lab-ui
 ```
 
-This is a multi-stage build: Node builds the app and nginx serves `dist/` with an SPA fallback. Any
-GLBs in `public/maps/` when you build are included in the image. You can also mount them at
-runtime with `-v $PWD/maps:/usr/share/nginx/html/maps:ro`. Missing GLBs return a real 404 from
-nginx, so the UI uses the grid fallback.
+This is a multi-stage build: Node builds the app and nginx serves `dist/` with an SPA fallback.
+Map GLBs are **not** baked into the image (`.dockerignore` excludes `public/maps/*.glb`; they are
+hundreds of MB each). Mount them at runtime instead with
+`-v $PWD/public/maps:/usr/share/nginx/html/maps:ro`; the cs2-bot-lab `docker-compose.yml` already
+mounts `../cs2-lab-ui/public/maps` this way, so a fresh export shows up without a rebuild. Missing
+GLBs return a real 404 from nginx, so the UI uses the grid fallback.
 
 ## Mock backend
 
