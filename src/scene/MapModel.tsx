@@ -1,9 +1,7 @@
 import { Component, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { Light, Material, Mesh, MeshStandardMaterial, Object3D } from "three";
+import { MeshLambertMaterial, type Mesh } from "three";
 import { useGLTF } from "@react-three/drei";
-import { mapTransform, mapUrl } from "./mapConfig";
-import { GroundGrid } from "./GroundGrid";
-import type { Playback } from "../api/playback";
+import { blockoutMapUrl, mapTransform } from "./mapConfig";
 
 type Availability = "checking" | "yes" | "no";
 
@@ -24,58 +22,30 @@ function useGlbAvailable(url: string): Availability {
   return a;
 }
 
-class GlbBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+/** Renders nothing if the model fails to load or parse. */
+class GlbBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
   }
   componentDidCatch(e: unknown) {
-    console.warn("Map GLB failed to load, using grid fallback", e);
+    console.warn("Map blockout failed to load; showing no map", e);
   }
   render() {
-    return this.state.failed ? this.props.fallback : this.props.children;
+    return this.state.failed ? null : this.props.children;
   }
 }
 
-/** CS2 surfaces that are invisible in-game or only make sense with the game's own shaders. */
-const HIDDEN_SHADERS = new Set(["csgo_effects.vfx", "csgo_black_unlit.vfx"]);
+// Flat-shaded so every face reads as a solid plane; the model carries height colours.
+const BLOCKOUT = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
 
-/** The exporter stores the source CS2 material (path, shader) in glTF extras -> `userData.vmat`. */
-function isHidden(m: Material): boolean {
-  const vmat = m.userData?.vmat as { Name?: string; ShaderName?: string } | undefined;
-  if (!vmat) return false;
-  return (
-    (vmat.Name ?? "").startsWith("materials/tools/") || HIDDEN_SHADERS.has(vmat.ShaderName ?? "")
-  );
-}
-
-function Glb({ map }: { map: string }) {
-  const { scene } = useGLTF(mapUrl(map));
+/** The blockout model (`<map>.blockout.glb`): architecture only, one simplified mesh. */
+function BlockoutGlb({ map }: { map: string }) {
+  const { scene } = useGLTF(blockoutMapUrl(map));
   useMemo(() => {
-    // Map exports carry the map's sun as a KHR_lights_punctual light in physical units
-    // (intensity ~2000), which washes every upward-facing surface out to white. The scene
-    // has its own lighting, so drop any lights that come with the GLB.
-    const lights: Object3D[] = [];
-    scene.traverse((o) => {
-      if ((o as Light).isLight) lights.push(o);
-    });
-    lights.forEach((l) => l.removeFromParent());
-
     scene.traverse((o) => {
       const mesh = o as Mesh;
-      if (!mesh.isMesh) return;
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      // Tool brushes (light blockers), effect cards (dust, light shafts) and black
-      // out-of-bounds fillers are not drawn in-game.
-      if (mats.every(isHidden)) mesh.visible = false;
-      // CS2 vertex colours hold shader data (foliage wind, blend weights), not tints;
-      // multiplying by them turns foliage purple.
-      for (const m of mats) {
-        if ((m as MeshStandardMaterial).vertexColors) {
-          (m as MeshStandardMaterial).vertexColors = false;
-          m.needsUpdate = true;
-        }
-      }
+      if (mesh.isMesh) mesh.material = BLOCKOUT;
     });
   }, [scene]);
   const t = mapTransform(map);
@@ -88,14 +58,15 @@ function Glb({ map }: { map: string }) {
   );
 }
 
-export function MapModel({ map, playback }: { map: string; playback: Playback }) {
-  const avail = useGlbAvailable(mapUrl(map));
-  const grid = <GroundGrid playback={playback} />;
-  if (avail !== "yes") return grid;
+/** The map as its blockout model; nothing while it loads or if there is none. */
+export function MapModel({ map }: { map: string }) {
+  const available = useGlbAvailable(blockoutMapUrl(map));
+  if (available !== "yes") return null;
   return (
-    <GlbBoundary fallback={grid}>
-      <Suspense fallback={grid}>
-        <Glb map={map} />
+    // Keyed by map so a failure on one map doesn't hide the next one.
+    <GlbBoundary key={map}>
+      <Suspense fallback={null}>
+        <BlockoutGlb map={map} />
       </Suspense>
     </GlbBoundary>
   );
