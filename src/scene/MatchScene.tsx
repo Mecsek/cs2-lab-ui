@@ -43,12 +43,12 @@ export function MatchScene({ playback, map, hudPlayers, cameraMode, follow, onSe
         <ClockDriver state={state} />
         <color attach="background" args={["#0b0f14"]} />
         <fog attach="fog" args={["#0b0f14", 120, 400]} />
-        {/* Map textures are pale (sand, plaster); keep the summed light on upward-facing
-            surfaces near 1x albedo or floors and roofs clip to white. */}
+        {/* Keep the summed light on upward-facing surfaces near 1x so the blockout's
+            height colours don't clip to white on floors and roofs. */}
         <ambientLight intensity={0.3} />
         <hemisphereLight args={["#bcd3ff", "#202020", 0.3]} />
         <directionalLight position={[50, 100, 30]} intensity={0.6} />
-        {map && <MapModel map={map} playback={playback} />}
+        {map && <MapModel map={map} />}
         {hudPlayers.map((p) => (
           <PlayerMarker
             key={p.name}

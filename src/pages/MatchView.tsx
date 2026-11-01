@@ -24,6 +24,7 @@ export function useTicker(ms: number): number {
 
 const KILLFEED_SECONDS = 6;
 
+
 interface Props {
   playback: Playback;
   /** Map name if known before the first frame. */

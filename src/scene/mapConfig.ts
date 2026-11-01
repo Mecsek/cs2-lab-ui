@@ -39,7 +39,7 @@ export function mapTransform(map: string): MapTransform {
   return { ...DEFAULT_MAP_TRANSFORM, ...(MAP_TRANSFORMS[map] ?? {}) };
 }
 
-/** URL of the map model, served from `public/maps/`. */
-export function mapUrl(map: string): string {
-  return `${import.meta.env.BASE_URL}maps/${encodeURIComponent(map)}.glb`;
+/** URL of the map's blockout model, served from `public/maps/` (scripts/blockout-map.mjs). */
+export function blockoutMapUrl(map: string): string {
+  return `${import.meta.env.BASE_URL}maps/${encodeURIComponent(map)}.blockout.glb`;
 }
