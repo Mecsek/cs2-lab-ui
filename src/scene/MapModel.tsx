@@ -1,4 +1,5 @@
-import { Component, Suspense, useEffect, useState, type ReactNode } from "react";
+import { Component, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { Light, Material, Mesh, MeshStandardMaterial, Object3D } from "three";
 import { useGLTF } from "@react-three/drei";
 import { mapTransform, mapUrl } from "./mapConfig";
 import { GroundGrid } from "./GroundGrid";
@@ -36,8 +37,47 @@ class GlbBoundary extends Component<{ fallback: ReactNode; children: ReactNode }
   }
 }
 
+/** CS2 surfaces that are invisible in-game or only make sense with the game's own shaders. */
+const HIDDEN_SHADERS = new Set(["csgo_effects.vfx", "csgo_black_unlit.vfx"]);
+
+/** The exporter stores the source CS2 material (path, shader) in glTF extras -> `userData.vmat`. */
+function isHidden(m: Material): boolean {
+  const vmat = m.userData?.vmat as { Name?: string; ShaderName?: string } | undefined;
+  if (!vmat) return false;
+  return (
+    (vmat.Name ?? "").startsWith("materials/tools/") || HIDDEN_SHADERS.has(vmat.ShaderName ?? "")
+  );
+}
+
 function Glb({ map }: { map: string }) {
   const { scene } = useGLTF(mapUrl(map));
+  useMemo(() => {
+    // Map exports carry the map's sun as a KHR_lights_punctual light in physical units
+    // (intensity ~2000), which washes every upward-facing surface out to white. The scene
+    // has its own lighting, so drop any lights that come with the GLB.
+    const lights: Object3D[] = [];
+    scene.traverse((o) => {
+      if ((o as Light).isLight) lights.push(o);
+    });
+    lights.forEach((l) => l.removeFromParent());
+
+    scene.traverse((o) => {
+      const mesh = o as Mesh;
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      // Tool brushes (light blockers), effect cards (dust, light shafts) and black
+      // out-of-bounds fillers are not drawn in-game.
+      if (mats.every(isHidden)) mesh.visible = false;
+      // CS2 vertex colours hold shader data (foliage wind, blend weights), not tints;
+      // multiplying by them turns foliage purple.
+      for (const m of mats) {
+        if ((m as MeshStandardMaterial).vertexColors) {
+          (m as MeshStandardMaterial).vertexColors = false;
+          m.needsUpdate = true;
+        }
+      }
+    });
+  }, [scene]);
   const t = mapTransform(map);
   return (
     <group position={t.offset} scale={[t.scale, t.scale, t.mirrorZ ? -t.scale : t.scale]}>
